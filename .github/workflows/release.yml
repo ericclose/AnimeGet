@@ -1,0 +1,313 @@
+name: Release AnimeGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  PACKAGE_NAME: anime_get
+
+jobs:
+  test:
+    name: Analyze & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run static analysis
+        run: flutter analyze
+
+      - name: Run unit tests
+        run: flutter test
+
+  build-macos:
+    name: Build macOS (DMG)
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS release
+        run: flutter build macos --release
+
+      - name: Package macOS DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          BIN_ARCHS="$(lipo -archs build/macos/Build/Products/Release/AnimeGet.app/Contents/MacOS/AnimeGet)"
+          if [[ "$BIN_ARCHS" == *"arm64"* && "$BIN_ARCHS" == *"x86_64"* ]]; then
+            ARCH="universal"
+          else
+            ARCH="$(uname -m)"
+          fi
+          DMG_NAME="${PACKAGE_NAME}-macos-${ARCH}-${VERSION}.dmg"
+          mkdir -p build/dmg_staging dist
+          ditto build/macos/Build/Products/Release/AnimeGet.app build/dmg_staging/AnimeGet.app
+          ln -s /Applications build/dmg_staging/Applications
+          diskutil image create from --format UDZO --volumeName "AnimeGet" build/dmg_staging "dist/${DMG_NAME}"
+          rm -rf build/dmg_staging
+          ls -lh "dist/${DMG_NAME}"
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: macos-dmg
+          path: dist/*.dmg
+
+  build-windows:
+    name: Build Windows (EXE)
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package Windows EXE Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+          if (-not $iscc -and (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) {
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          }
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $exeBaseName = "$($env:PACKAGE_NAME)-windows-x64-$version"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $issContent = @"
+          [Setup]
+          AppId={{7B6E8C9A-4A5D-4D2B-9E1C-3F8A2B1C4D5E}
+          AppName=AnimeGet
+          AppVersion=$version
+          DefaultDirName={autopf}\AnimeGet
+          DefaultGroupName=AnimeGet
+          PrivilegesRequired=lowest
+          PrivilegesRequiredOverridesAllowed=dialog
+          OutputDir=dist
+          OutputBaseFilename=$exeBaseName
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+          [Files]
+          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\AnimeGet"; Filename: "{app}\anime_get.exe"
+          Name: "{autodesktop}\AnimeGet"; Filename: "{app}\anime_get.exe"; Tasks: desktopicon
+
+          [Run]
+          Filename: "{app}\anime_get.exe"; Description: "{cm:LaunchProgram,AnimeGet}"; Flags: nowait postinstall skipifsilent
+          "@
+          Set-Content -Path "anime_get.iss" -Value $issContent -Encoding UTF8
+          & $iscc "anime_get.iss"
+          Get-Item "dist\$exeBaseName.exe"
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: windows-exe
+          path: dist/*.exe
+
+  build-fedora:
+    name: Build Fedora Linux (RPM)
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    needs: test
+    steps:
+      - name: Install Fedora build dependencies
+        run: |
+          dnf install -y \
+            git curl unzip xz tar gzip which jq rpm-build \
+            clang cmake ninja-build pkgconf-pkg-config \
+            gtk3-devel webkit2gtk4.1-devel libstdc++-devel mesa-libGLU-devel
+
+      - uses: actions/checkout@v7.0.1
+
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Package Fedora RPM
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          RPM_VERSION="${VERSION//-/.}"
+          HOST_ARCH="$(uname -m)"
+          if [ "$HOST_ARCH" = "x86_64" ]; then
+            FLUTTER_ARCH="x64"
+          elif [ "$HOST_ARCH" = "aarch64" ]; then
+            FLUTTER_ARCH="arm64"
+          else
+            FLUTTER_ARCH="$HOST_ARCH"
+          fi
+          RPM_TOP="${PWD}/build/rpmbuild"
+          mkdir -p "${RPM_TOP}"/{BUILD,RPMS,SOURCES,SPECS,SRPMS} dist
+          cp -r "build/linux/${FLUTTER_ARCH}/release/bundle" "${RPM_TOP}/SOURCES/bundle"
+
+          cat > "${RPM_TOP}/SPECS/anime_get.spec" <<EOF
+          %global debug_package %{nil}
+          %global __brp_check_rpaths %{nil}
+
+          Name:           anime_get
+          Version:        ${RPM_VERSION}
+          Release:        1%{?dist}
+          Summary:        Cross-platform Anime Downloader
+          License:        MIT
+          AutoReqProv:    no
+
+          %description
+          AnimeGet is a cross-platform anime downloader built with Flutter.
+
+          %install
+          mkdir -p %{buildroot}/opt/anime_get
+          cp -a %{_sourcedir}/bundle/* %{buildroot}/opt/anime_get/
+          mkdir -p %{buildroot}/usr/bin
+          ln -s /opt/anime_get/anime_get %{buildroot}/usr/bin/anime_get
+          mkdir -p %{buildroot}/usr/share/applications
+          cat > %{buildroot}/usr/share/applications/anime_get.desktop <<DESKTOP
+          [Desktop Entry]
+          Name=AnimeGet
+          Comment=Cross-platform Anime Downloader
+          Exec=/opt/anime_get/anime_get
+          Type=Application
+          Categories=AudioVideo;Network;
+          Terminal=false
+          DESKTOP
+
+          %files
+          /opt/anime_get
+          /usr/bin/anime_get
+          /usr/share/applications/anime_get.desktop
+          EOF
+
+          rpmbuild -bb --define "_topdir ${RPM_TOP}" "${RPM_TOP}/SPECS/anime_get.spec"
+          BUILT_RPM="$(find "${RPM_TOP}/RPMS" -name '*.rpm' | head -n 1)"
+          TARGET_RPM="dist/${PACKAGE_NAME}-fedora-${HOST_ARCH}-${VERSION}.rpm"
+          cp "${BUILT_RPM}" "${TARGET_RPM}"
+          ls -lh "${TARGET_RPM}"
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: fedora-rpm
+          path: dist/*.rpm
+
+  build-android:
+    name: Build Android (APK)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Configure git safe.directory
+        run: git config --global --add safe.directory '*'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Android split APKs
+        run: flutter build apk --release --split-per-abi
+
+      - name: Rename Android APKs
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            SRC="build/app/outputs/flutter-apk/app-${abi}-release.apk"
+            if [ -f "$SRC" ]; then
+              cp "$SRC" "dist/${PACKAGE_NAME}-android-${abi}-${VERSION}.apk"
+            fi
+          done
+          ls -lh dist/*.apk
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: android-apks
+          path: dist/*.apk
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-macos
+      - build-windows
+      - build-fedora
+      - build-android
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List release assets
+        run: ls -lh release-assets
+
+      - name: Create GitHub Latest Release
+        uses: softprops/action-gh-release@v3.0.4
+        with:
+          make_latest: true
+          generate_release_notes: true
+          files: release-assets/*

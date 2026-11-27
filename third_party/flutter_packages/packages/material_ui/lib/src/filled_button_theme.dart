@@ -1,0 +1,195 @@
+// Copyright 2013 The Flutter Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+/// @docImport 'filled_button.dart';
+library;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+import 'button_style.dart';
+import 'theme.dart';
+import 'theme_data.dart';
+
+// Examples can assume:
+// late BuildContext context;
+
+/// A [ButtonStyle] that overrides the default appearance of
+/// [FilledButton]s when it's used with [FilledButtonTheme] or with the
+/// overall [Theme]'s [ThemeData.filledButtonTheme].
+///
+/// The [style]'s properties override [FilledButton]'s default style,
+/// i.e. the [ButtonStyle] returned by [FilledButton.defaultStyleOf]. Only
+/// the style's non-null property values or resolved non-null
+/// [WidgetStateProperty] values are used.
+///
+/// See also:
+///
+///  * [FilledButtonTheme], the theme which is configured with this class.
+///  * [FilledButton.defaultStyleOf], which returns the default [ButtonStyle]
+///    for filled buttons.
+///  * [FilledButton.styleFrom], which converts simple values into a
+///    [ButtonStyle] that's consistent with [FilledButton]'s defaults.
+///  * [WidgetStateProperty.resolve], "resolve" a material state property
+///    to a simple value based on a set of [WidgetState]s.
+///  * [ThemeData.filledButtonTheme], which can be used to override the default
+///    [ButtonStyle] for [FilledButton]s below the overall [Theme].
+@immutable
+class FilledButtonThemeData with Diagnosticable {
+  /// Creates a [FilledButtonThemeData].
+  ///
+  /// The [style] may be null.
+  const FilledButtonThemeData({this.style, this.variant});
+
+  /// Overrides for [FilledButton]'s default style.
+  ///
+  /// Non-null properties or non-null resolved [WidgetStateProperty]
+  /// values override the [ButtonStyle] returned by
+  /// [FilledButton.defaultStyleOf].
+  ///
+  /// If [style] is null, then this theme doesn't override anything.
+  final ButtonStyle? style;
+
+  /// The style variant of Material Design used by [FilledButton].
+  ///
+  /// Set this to [StyleVariant.material3Expressive] to opt filled buttons into
+  /// the Material 3 Expressive style, including filled tonal buttons.
+  ///
+  /// If null, the variant is inherited from the closest enclosing
+  /// [FilledButtonTheme] that specifies one, and then from
+  /// [ThemeData.filledButtonTheme]. If none of them specify a variant,
+  /// [FilledButton] uses [StyleVariant.material3]. To keep a subtree on
+  /// Material 3 when an ancestor opts into Material 3 Expressive, set this to
+  /// [StyleVariant.material3].
+  ///
+  /// An enclosing [FilledButtonTheme] takes precedence over
+  /// [ThemeData.filledButtonTheme], even when a closer [Theme] specifies a
+  /// different variant. This matches [FilledButtonTheme.of], which only uses
+  /// [ThemeData.filledButtonTheme] when there is no enclosing
+  /// [FilledButtonTheme]. To change the variant of a subtree, wrap it in a
+  /// [FilledButtonTheme].
+  ///
+  /// See also:
+  ///
+  ///  * [FilledButtonTheme.variantOf], which returns the variant that applies
+  ///    at a given location.
+  final StyleVariant? variant;
+
+  /// Linearly interpolate between two filled button themes.
+  static FilledButtonThemeData? lerp(FilledButtonThemeData? a, FilledButtonThemeData? b, double t) {
+    if (identical(a, b)) {
+      return a;
+    }
+    return FilledButtonThemeData(
+      style: ButtonStyle.lerp(a?.style, b?.style, t),
+      variant: t < 0.5 ? a?.variant : b?.variant,
+    );
+  }
+
+  @override
+  int get hashCode => Object.hash(style, variant);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) {
+      return true;
+    }
+    if (other.runtimeType != runtimeType) {
+      return false;
+    }
+    return other is FilledButtonThemeData && other.style == style && other.variant == variant;
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<ButtonStyle>('style', style, defaultValue: null));
+    properties.add(EnumProperty<StyleVariant>('variant', variant, defaultValue: null));
+  }
+}
+
+/// Overrides the default [ButtonStyle] of its [FilledButton] descendants.
+///
+/// See also:
+///
+///  * [FilledButtonThemeData], which is used to configure this theme.
+///  * [FilledButton.defaultStyleOf], which returns the default [ButtonStyle]
+///    for filled buttons.
+///  * [FilledButton.styleFrom], which converts simple values into a
+///    [ButtonStyle] that's consistent with [FilledButton]'s defaults.
+///  * [ThemeData.filledButtonTheme], which can be used to override the default
+///    [ButtonStyle] for [FilledButton]s below the overall [Theme].
+class FilledButtonTheme extends InheritedTheme {
+  /// Create a [FilledButtonTheme].
+  const FilledButtonTheme({super.key, required this.data, required super.child});
+
+  /// The configuration of this theme.
+  final FilledButtonThemeData data;
+
+  /// Retrieves the [FilledButtonThemeData] from the closest ancestor [FilledButtonTheme].
+  ///
+  /// If there is no enclosing [FilledButtonTheme] widget, then
+  /// [ThemeData.filledButtonTheme] is used.
+  ///
+  /// The returned [FilledButtonThemeData.variant] is the value specified by
+  /// that theme, which can be null even when an ancestor specifies a variant.
+  /// Use [variantOf] to get the variant that applies at the given [context].
+  ///
+  /// Typical usage is as follows:
+  ///
+  /// ```dart
+  /// FilledButtonThemeData theme = FilledButtonTheme.of(context);
+  /// ```
+  static FilledButtonThemeData of(BuildContext context) {
+    final FilledButtonTheme? buttonTheme = context
+        .dependOnInheritedWidgetOfExactType<FilledButtonTheme>();
+    return buttonTheme?.data ?? Theme.of(context).filledButtonTheme;
+  }
+
+  /// Returns the [StyleVariant] that [FilledButton]s use at the given
+  /// [context].
+  ///
+  /// The closest enclosing [FilledButtonTheme] whose
+  /// [FilledButtonThemeData.variant] is non-null determines the variant, so a
+  /// [FilledButtonTheme] that doesn't specify a variant inherits it from its
+  /// ancestors. If none of the enclosing [FilledButtonTheme]s specify a
+  /// variant, the variant of [ThemeData.filledButtonTheme] is used. If that is
+  /// also null, [StyleVariant.material3] is returned.
+  ///
+  /// Typical usage is as follows:
+  ///
+  /// ```dart
+  /// final StyleVariant variant = FilledButtonTheme.variantOf(context);
+  /// ```
+  static StyleVariant variantOf(BuildContext context) {
+    InheritedElement? element = context
+        .getElementForInheritedWidgetOfExactType<FilledButtonTheme>();
+    while (element != null) {
+      // Depend on every theme that is visited, so that a change to any of them
+      // rebuilds the dependent.
+      context.dependOnInheritedElement(element);
+      final StyleVariant? variant = (element.widget as FilledButtonTheme).data.variant;
+      if (variant != null) {
+        return variant;
+      }
+      // Calling getElementForInheritedWidgetOfExactType on the element itself
+      // would return the same element, so continue the search from its parent.
+      Element? parent;
+      element.visitAncestorElements((Element ancestor) {
+        parent = ancestor;
+        return false;
+      });
+      element = parent?.getElementForInheritedWidgetOfExactType<FilledButtonTheme>();
+    }
+    return Theme.of(context).filledButtonTheme.variant ?? StyleVariant.material3;
+  }
+
+  @override
+  Widget wrap(BuildContext context, Widget child) {
+    return FilledButtonTheme(data: data, child: child);
+  }
+
+  @override
+  bool updateShouldNotify(FilledButtonTheme oldWidget) => data != oldWidget.data;
+}
